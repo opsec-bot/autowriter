@@ -29,8 +29,8 @@ except ImportError:
 TRIGGER_KEY  = Key.f9     # press this to start typing (in any window)
 STOP_KEY     = Key.esc    # press this to abort
 
-WPM_MIN      = 52         # slowest typing speed
-WPM_MAX      = 95         # fastest typing speed (during flow)
+WPM_MIN      = 130        # slowest typing speed
+WPM_MAX      = 170        # fastest typing speed (during flow)
 
 # Probability of entering a "locked-in" flow state after any pause
 FLOW_CHANCE  = 0.22
