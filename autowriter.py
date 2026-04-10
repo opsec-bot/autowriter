@@ -187,37 +187,22 @@ def autowrite(chunks: list):
 # ── Input collection ──────────────────────────────────────────────────────────
 
 def collect_text() -> str:
-    """Read pasted text from stdin.  Two consecutive blank lines = done."""
+    """Read pasted text from stdin.  Ctrl+Z + Enter (Windows) or Ctrl+D (Mac/Linux) = done."""
     w = 60
     print()
     print("  " + "─" * w)
     print("  AUTOWRITER")
     print("  " + "─" * w)
-    print("  Paste your text.  Press ENTER twice when done.")
+    print("  Paste your text, then press Ctrl+Z + Enter to finish.")
     print("  " + "─" * w)
     print()
 
-    lines        = []
-    blank_streak = 0
-
     try:
-        while True:
-            line = input()
-            if line == '':
-                blank_streak += 1
-                if blank_streak >= 2:
-                    break
-                lines.append('')
-            else:
-                blank_streak = 0
-                lines.append(line)
+        text = sys.stdin.read()
     except (EOFError, KeyboardInterrupt):
-        pass
+        text = ""
 
-    while lines and lines[-1] == '':
-        lines.pop()
-
-    return '\n'.join(lines)
+    return text.strip()
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
