@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autowriter"
+version = "0.1.0"
+description = "Recreate a .docx inside a Google Doc, one editing operation at a time."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = []
+
+[project.optional-dependencies]
+# Only the `copy` command needs these; reading, planning and checking do not.
+google = [
+    "google-api-python-client>=2.0",
+    "google-auth>=2.0",
+    "google-auth-oauthlib>=1.0",
+]
+images = ["Pillow>=9.0"]
+dev = ["pytest>=7.0", "pyflakes"]
+
+[project.scripts]
+autowriter = "autowriter.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["autowriter*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
