@@ -6,12 +6,18 @@ import io
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 from ..ir import Document, ImageAsset
 
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 MAX_ATTEMPTS = 5
+
+#: The Docs write quota is enforced per minute (60 writes per user by default),
+#: so a rate-limited batch has to wait out a real part of that window.  The
+#: second or two that clears a 503 only burns an attempt against a 429.
+RATE_LIMIT_DELAY = 20.0
+MAX_RATE_LIMIT_DELAY = 60.0
 
 #: The only formats the Docs API will fetch for an inline image.
 SUPPORTED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif"}
@@ -55,7 +61,7 @@ def create_document(service, title: str) -> str:
     return response["documentId"]
 
 
-def _with_retries(call, attempts: int = MAX_ATTEMPTS):
+def _with_retries(call, attempts: int = MAX_ATTEMPTS, sleep=time.sleep):
     """Retry the transient failures the Docs API is prone to under load."""
     delay = 1.0
     last_error = None
@@ -67,9 +73,16 @@ def _with_retries(call, attempts: int = MAX_ATTEMPTS):
             if status not in RETRY_STATUSES or attempt == attempts - 1:
                 raise
             last_error = error
-            time.sleep(delay + random.uniform(0, 0.4))
+            sleep(_backoff(status, attempt, delay) + random.uniform(0, 0.4))
             delay *= 2
     raise last_error  # pragma: no cover - unreachable
+
+
+def _backoff(status: Optional[int], attempt: int, delay: float) -> float:
+    """How long to wait before retrying, in seconds."""
+    if status == 429:
+        return min(RATE_LIMIT_DELAY * (2 ** attempt), MAX_RATE_LIMIT_DELAY)
+    return delay
 
 
 # ---------------------------------------------------------------------------

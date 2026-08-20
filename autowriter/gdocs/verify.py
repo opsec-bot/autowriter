@@ -111,11 +111,13 @@ def expected_paragraph_style(props: ir.ParagraphProps) -> Dict[str, Any]:
         "namedStyleType": props.named_style or "NORMAL_TEXT",
         "alignment": props.alignment,
         "lineSpacing": props.line_spacing,
-        "spaceAbove": props.space_above_pt,
-        "spaceBelow": props.space_below_pt,
-        "indentStart": props.indent_start_pt,
-        "indentEnd": props.indent_end_pt,
-        "indentFirstLine": props.indent_first_line_pt,
+        "spaceAbove": props.space_above_pt or 0.0,
+        "spaceBelow": props.space_below_pt or 0.0,
+        # An unset indent and a zero indent are the same paragraph; the copy
+        # comes back with the property absent either way.
+        "indentStart": props.indent_start_pt or 0.0,
+        "indentEnd": props.indent_end_pt or 0.0,
+        "indentFirstLine": props.indent_first_line_pt or 0.0,
         "keepWithNext": props.keep_with_next,
         "keepLinesTogether": props.keep_lines_together,
         "direction": props.direction,
@@ -124,10 +126,14 @@ def expected_paragraph_style(props: ir.ParagraphProps) -> Dict[str, Any]:
     }
 
 
-def actual_paragraph_style(style: Dict) -> Dict[str, Any]:
+def actual_paragraph_style(style: Dict, inherited: Optional[Dict] = None) -> Dict[str, Any]:
+    style = dict(inherited or {}, **style)
+
     def magnitude(name: str) -> Optional[float]:
         value = style.get(name)
-        return value.get("magnitude") if isinstance(value, dict) else None
+        if not isinstance(value, dict):
+            return 0.0 if name in ZERO_DEFAULTED else None
+        return value.get("magnitude", 0.0 if name in ZERO_DEFAULTED else None)
 
     shading = style.get("shading", {}).get("backgroundColor")
     return {
@@ -181,9 +187,61 @@ def model_characters(paragraph: ir.Paragraph, options=None) -> Tuple[str, List[D
     return "".join(text), styles
 
 
-def doc_characters(element: Dict) -> Tuple[str, List[Dict[str, Any]]]:
+#: Properties where "absent" and "zero" mean the same thing, on both sides.
+ZERO_DEFAULTED = ("spaceAbove", "spaceBelow", "indentStart", "indentEnd", "indentFirstLine")
+
+
+@dataclass(frozen=True)
+class NamedStyleDefaults:
+    """What each named style supplies, so an omitted property can be resolved.
+
+    The API omits a property from a reply when it already matches what the
+    paragraph's named style provides -- 11pt body text comes back with no
+    ``fontSize`` at all, and an unindented paragraph with no ``indentFirstLine``.
+    Reading a reply without these defaults in hand reports every inherited
+    property as missing.
+    """
+
+    text: Dict[str, Dict] = field(default_factory=dict)
+    paragraph: Dict[str, Dict] = field(default_factory=dict)
+
+    def text_for(self, named: Optional[str]) -> Dict:
+        return self.text.get(named or "NORMAL_TEXT", self.text.get("NORMAL_TEXT", {}))
+
+    def paragraph_for(self, named: Optional[str]) -> Dict:
+        return self.paragraph.get(named or "NORMAL_TEXT", self.paragraph.get("NORMAL_TEXT", {}))
+
+
+def named_style_defaults(snapshot: Dict) -> NamedStyleDefaults:
+    """Read the document's named styles, each resolved over NORMAL_TEXT.
+
+    A named style states only what it overrides -- HEADING_1 carries a font size
+    and nothing else -- so every style is layered onto NORMAL_TEXT first.
+    """
+    entries = [
+        entry
+        for entry in snapshot.get("namedStyles", {}).get("styles", [])
+        if entry.get("namedStyleType")
+    ]
+    text = {entry["namedStyleType"]: entry.get("textStyle", {}) for entry in entries}
+    paragraph = {entry["namedStyleType"]: entry.get("paragraphStyle", {}) for entry in entries}
+    text_base = text.get("NORMAL_TEXT", {})
+    paragraph_base = paragraph.get("NORMAL_TEXT", {})
+    return NamedStyleDefaults(
+        text={name: dict(text_base, **style) for name, style in text.items()},
+        paragraph={name: dict(paragraph_base, **style) for name, style in paragraph.items()},
+    )
+
+
+def doc_characters(
+    element: Dict, defaults: Optional["NamedStyleDefaults"] = None
+) -> Tuple[str, List[Dict[str, Any]]]:
     text: List[str] = []
     styles: List[Dict[str, Any]] = []
+    paragraph = element.get("paragraph", {})
+    inherited: Dict = {}
+    if defaults is not None:
+        inherited = defaults.text_for(paragraph.get("paragraphStyle", {}).get("namedStyleType"))
     elements = element.get("paragraph", {}).get("elements", [])
     for index, item in enumerate(elements):
         run = item.get("textRun")
@@ -191,7 +249,7 @@ def doc_characters(element: Dict) -> Tuple[str, List[Dict[str, Any]]]:
             content = run.get("content", "")
             if index == len(elements) - 1 and content.endswith("\n"):
                 content = content[:-1]
-            summary = actual_text_style(run.get("textStyle", {}))
+            summary = actual_text_style(dict(inherited, **run.get("textStyle", {})))
             for _ in range(u16len(content)):
                 styles.append(summary)
             text.append(content)
@@ -199,7 +257,9 @@ def doc_characters(element: Dict) -> Tuple[str, List[Dict[str, Any]]]:
         for key in ("inlineObjectElement", "pageBreak", "footnoteReference"):
             if key in item:
                 text.append(OPAQUE)
-                styles.append(actual_text_style(item[key].get("textStyle", {})))
+                styles.append(
+                    actual_text_style(dict(inherited, **item[key].get("textStyle", {})))
+                )
                 break
     return "".join(text), styles
 
@@ -252,16 +312,23 @@ def verify(
     blocks: List[ir.Block] = []
     for section in document.sections:
         blocks.extend(section.blocks)
-    _compare_segment(blocks, snapshot.get("body", {}).get("content", []), report, "body", options)
+    defaults = named_style_defaults(snapshot)
+    _compare_segment(
+        blocks, snapshot.get("body", {}).get("content", []), report, "body", options, defaults
+    )
 
     if check_headers:
-        _compare_header_footers(document, snapshot, report, options)
+        _compare_header_footers(document, snapshot, report, options, defaults)
     _compare_page_setup(document, snapshot, report)
     return report
 
 
 def _compare_header_footers(
-    document: ir.Document, snapshot: Dict, report: VerificationReport, options
+    document: ir.Document,
+    snapshot: Dict,
+    report: VerificationReport,
+    options,
+    defaults: Optional["NamedStyleDefaults"] = None,
 ) -> None:
     for kind, key in (("header", "headers"), ("footer", "footers")):
         segments = list(snapshot.get(key, {}).values())
@@ -276,7 +343,7 @@ def _compare_header_footers(
             report.add(kind, "presence", "%d %s(s)" % (len(expected), kind), "none")
             continue
         _compare_segment(
-            expected[0].blocks, segments[0].get("content", []), report, kind, options
+            expected[0].blocks, segments[0].get("content", []), report, kind, options, defaults
         )
 
 
@@ -286,6 +353,7 @@ def _compare_segment(
     report: VerificationReport,
     location: str,
     options,
+    defaults: Optional["NamedStyleDefaults"] = None,
 ) -> None:
     model = list(iter_model(blocks, location))
     actual = list(iter_doc(content))
@@ -308,7 +376,7 @@ def _compare_segment(
             continue
 
         if kind == "paragraph":
-            _compare_paragraph(block, element, report, label, options)
+            _compare_paragraph(block, element, report, label, options, defaults)
             report.paragraphs_checked += 1
         else:
             _compare_table(block, element, report, label)
@@ -330,9 +398,10 @@ def _compare_paragraph(
     report: VerificationReport,
     label: str,
     options,
+    defaults: Optional["NamedStyleDefaults"] = None,
 ) -> None:
     expected_text, expected_styles = model_characters(paragraph, options)
-    actual_text, actual_styles = doc_characters(element)
+    actual_text, actual_styles = doc_characters(element, defaults)
 
     if expected_text != actual_text:
         report.add(label, "text", expected_text, actual_text)
@@ -352,7 +421,8 @@ def _compare_paragraph(
 
     style = element.get("paragraph", {}).get("paragraphStyle", {})
     wanted_paragraph = expected_paragraph_style(paragraph.props)
-    found_paragraph = actual_paragraph_style(style)
+    inherited = defaults.paragraph_for(style.get("namedStyleType")) if defaults else None
+    found_paragraph = actual_paragraph_style(style, inherited)
     for name, value in wanted_paragraph.items():
         if value is None:
             continue

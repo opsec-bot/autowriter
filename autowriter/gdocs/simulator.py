@@ -32,6 +32,16 @@ class DocsError(Exception):
     """Raised for requests the real API would reject."""
 
 
+def _check_text_style(style: Dict) -> None:
+    """Reject the text styles the API rejects.
+
+    A link is cleared by naming it in the field mask and leaving it out of the
+    payload; an explicit empty link is an error, not a no-op.
+    """
+    if "link" in style and not style["link"]:
+        raise DocsError("Invalid updateTextStyle: Links must include at least one type.")
+
+
 # ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------
@@ -306,7 +316,14 @@ class SimulatedDocs:
             ],
             columns=columns,
         )
-        container.insert(position, table)
+        # insertTable puts a newline before the table: the paragraph at the
+        # insertion point stays put and the table follows it, so the table
+        # begins one index later than the location given in the request.  A
+        # table is also never the last thing in a segment -- the API always
+        # leaves a paragraph after it.
+        container.insert(position + 1, table)
+        if container[-1] is table:
+            container.append(_new_paragraph())
         return {}
 
     def _do_insert_section_break(self, payload: Dict) -> Dict:
@@ -365,6 +382,7 @@ class SimulatedDocs:
         start, end = span["startIndex"], span["endIndex"]
         style = payload.get("textStyle", {})
         fields = _fields(payload)
+        _check_text_style(style)
         self._check_range(segment_id, start, end)
         for paragraph, paragraph_start in self._paragraphs_in_range(segment_id, start, end):
             local_start = max(start - paragraph_start, 0)
@@ -707,7 +725,12 @@ def _render_content(content: Sequence, start: int) -> List[Dict]:
     out = []
     position = start
     for node in content:
-        element: Dict = {"startIndex": position, "endIndex": position + node.length}
+        # A zero startIndex is left out of a reply, exactly as the API leaves it
+        # out -- the first element of a header, footer or footnote segment has
+        # no startIndex at all, and reading one as required raises KeyError.
+        element: Dict = {"endIndex": position + node.length}
+        if position:
+            element = {"startIndex": position, "endIndex": position + node.length}
         if isinstance(node, Paragraph):
             element["paragraph"] = _render_paragraph(node, position)
         elif isinstance(node, Table):

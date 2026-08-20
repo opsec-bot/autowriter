@@ -261,8 +261,10 @@ class SegmentWriter:
             if isinstance(inline, ir.TextRun):
                 wrote_content |= self._write_text_run(inline)
             elif isinstance(inline, ir.PageBreakRun):
+                break_start = self.cursor
                 self._emit(R.insert_page_break(self.cursor, self.segment_id))
                 self.cursor += 1
+                self._style_placeholder(break_start, inline.style)
                 wrote_content = True
             elif isinstance(inline, ir.ImageRun):
                 wrote_content |= self._write_image(inline)
@@ -322,6 +324,16 @@ class SegmentWriter:
         self._text.append(R.update_text_style(start, self.cursor, style, self.segment_id))
         return True
 
+    def _style_placeholder(self, start: int, style: ir.TextStyle) -> None:
+        """Give a placeholder character its run's character style.
+
+        An image, a page break and a footnote reference each occupy one index,
+        and the API keeps a text style on them exactly as it does on a text run.
+        Without this they fall back to the document default -- an image whose
+        run was 12pt Calibri reads back as 11pt Arial.
+        """
+        self._text.append(R.update_text_style(start, self.cursor, style, self.segment_id))
+
     def _write_image(self, image: ir.ImageRun) -> bool:
         uri = self.copier.image_uris.get(image.asset_id)
         if not uri:
@@ -330,12 +342,14 @@ class SegmentWriter:
                 "an image was skipped because no public URL was available for it",
             )
             return False
+        start = self.cursor
         self._emit(
             R.insert_inline_image(
                 self.cursor, uri, image.width_pt, image.height_pt, self.segment_id
             )
         )
         self.cursor += 1
+        self._style_placeholder(start, image.style)
         if image.alt_description or image.alt_title:
             self.copier.result.note(
                 "unsupported", "image alt text cannot be set through the Docs API"
@@ -354,8 +368,10 @@ class SegmentWriter:
             return False
         self._flush_text()
         self._footnote_tasks.append((len(self._content), footnote.blocks))
+        reference_start = self.cursor
         self._content.append(R.create_footnote(self.cursor))
         self.cursor += 1
+        self._style_placeholder(reference_start, footnote.style)
         return True
 
     # -- tables ------------------------------------------------------------
@@ -367,8 +383,13 @@ class SegmentWriter:
             return
 
         self.flush()
-        table_start = self.cursor
-        batch: List[Dict] = [R.insert_table(table_start, rows, columns, self.segment_id)]
+        # insertTable inserts a newline before the table, so the table itself
+        # begins one index after the location the request names.  Everything
+        # that addresses the table afterwards -- merges, cell fills, styling --
+        # has to use that later index.
+        insert_at = self.cursor
+        table_start = insert_at + 1
+        batch: List[Dict] = [R.insert_table(insert_at, rows, columns, self.segment_id)]
         batch.extend(self._merge_requests(table, table_start))
         self.copier.send(batch)
 
@@ -415,11 +436,18 @@ class SegmentWriter:
         for width, columns in widths.items():
             out.append(R.update_column_width(table_start, columns, width, self.segment_id))
 
-        heights: Dict[Tuple[Optional[float], bool], List[int]] = {}
+        if any(row.is_header for row in table.rows):
+            self.copier.result.note(
+                "unsupported",
+                "a table's repeating header row was not marked as one "
+                "(the API will not set tableHeader)",
+            )
+
+        heights: Dict[Optional[float], List[int]] = {}
         for index, row in enumerate(table.rows):
-            heights.setdefault((row.min_height_pt, row.is_header), []).append(index)
-        for (height, header), rows in heights.items():
-            request = R.update_row_style(table_start, rows, height, header, self.segment_id)
+            heights.setdefault(row.min_height_pt, []).append(index)
+        for height, rows in heights.items():
+            request = R.update_row_style(table_start, rows, height, self.segment_id)
             if request is not None:
                 out.append(request)
 
@@ -555,7 +583,9 @@ class Copier:
             return
         snapshot = self.transport.get_document()
         content = segment_content(snapshot, footnote_id)
-        start = content[0]["startIndex"] if content else 0
+        # The API omits startIndex when it is zero, which is exactly where a
+        # header, footer or footnote segment begins.
+        start = content[0].get("startIndex", 0) if content else 0
         writer = SegmentWriter(self, footnote_id, start)
         writer.write_blocks(blocks)
         writer.flush()
@@ -595,7 +625,7 @@ class Copier:
                     continue
                 snapshot = self.transport.get_document()
                 segment = segment_content(snapshot, segment_id)
-                start = segment[0]["startIndex"] if segment else 0
+                start = segment[0].get("startIndex", 0) if segment else 0
                 writer = SegmentWriter(self, segment_id, start)
                 writer.write_blocks(content.blocks)
                 writer.flush()
@@ -619,7 +649,7 @@ def segment_content(document: Dict, segment_id: str) -> List[Dict]:
 def body_start_index(document: Dict) -> int:
     for element in document.get("body", {}).get("content", []):
         if "paragraph" in element:
-            return element["startIndex"]
+            return element.get("startIndex", 0)
     return 1
 
 
@@ -666,7 +696,7 @@ def table_layout(table: Dict) -> Dict[Tuple[int, int], int]:
             column_span = style.get("columnSpan") or 1
             content = cell.get("content", [])
             if content:
-                layout[(row_index, column)] = content[0]["startIndex"]
+                layout[(row_index, column)] = content[0].get("startIndex", 0)
             for extra_row in range(row_index, row_index + row_span):
                 for extra_column in range(column, column + column_span):
                     if (extra_row, extra_column) != (row_index, column):

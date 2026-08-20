@@ -180,18 +180,22 @@ def text_style_payload(style: TextStyle) -> Dict:
     payload["backgroundColor"] = optional_color(style.background_color) or {}
     if style.link_url:
         payload["link"] = {"url": style.link_url}
-    else:
-        payload["link"] = {}
     return payload
 
 
 def update_text_style(start: int, end: int, style: TextStyle, segment_id: str = "") -> Dict:
     payload = text_style_payload(style)
+    # ``link`` stays in the field mask even when the payload has none: inserted
+    # text inherits the preceding run's style, so a link has to be cleared
+    # explicitly.  Absent from the payload but present in the mask is how that
+    # is expressed -- an explicit empty link is rejected outright, with
+    # "Links must include at least one type."
+    fields = sorted(set(payload) | {"link"})
     return {
         "updateTextStyle": {
             "range": _range(start, end, segment_id),
             "textStyle": payload,
-            "fields": ",".join(sorted(payload)),
+            "fields": ",".join(fields),
         }
     }
 
@@ -401,14 +405,17 @@ def update_row_style(
     table_start: int,
     rows: List[int],
     min_height_pt: Optional[float],
-    is_header: bool,
     segment_id: str = "",
 ) -> Optional[Dict]:
+    """The writable part of a row's style, which is only its height.
+
+    ``tableRowStyle.tableHeader`` is readable but not writable: naming it here
+    makes the API reject the whole request with "Unallowed field: tableHeader".
+    A repeating header row is reported as unsupported instead.
+    """
     payload: Dict = {}
     if min_height_pt is not None:
         payload["minRowHeight"] = dimension(min_height_pt)
-    if is_header:
-        payload["tableHeader"] = True
     if not payload:
         return None
     return {

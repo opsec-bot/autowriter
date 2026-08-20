@@ -21,8 +21,12 @@ def test_text_style_states_every_toggle_explicitly():
 
 
 def test_text_style_fields_match_the_payload_keys():
+    # Every key in the payload is named in the mask.  ``link`` is the one field
+    # that can be masked without appearing in the payload -- that is how a link
+    # is cleared -- so the mask is the payload keys plus ``link``.
     request = R.update_text_style(1, 5, TextStyle(bold=True))["updateTextStyle"]
-    assert sorted(request["textStyle"]) == request["fields"].split(",")
+    assert sorted(set(request["textStyle"]) | {"link"}) == request["fields"].split(",")
+    assert set(request["textStyle"]) <= set(request["fields"].split(","))
 
 
 def test_bold_runs_carry_a_font_weight():
@@ -31,10 +35,24 @@ def test_bold_runs_carry_a_font_weight():
 
 
 def test_links_are_cleared_when_absent():
-    assert R.text_style_payload(TextStyle())["link"] == {}
+    # A cleared link is named in the field mask and omitted from the payload:
+    # the API rejects an explicit empty link with "Links must include at least
+    # one type."
+    payload = R.text_style_payload(TextStyle())
+    assert "link" not in payload
     assert R.text_style_payload(TextStyle(link_url="https://example.com"))["link"] == {
         "url": "https://example.com"
     }
+
+
+def test_update_text_style_always_masks_the_link_field():
+    request = R.update_text_style(1, 5, TextStyle())["updateTextStyle"]
+    assert "link" in request["fields"].split(",")
+    assert "link" not in request["textStyle"]
+
+    linked = R.update_text_style(1, 5, TextStyle(link_url="https://example.com"))
+    assert "link" in linked["updateTextStyle"]["fields"].split(",")
+    assert linked["updateTextStyle"]["textStyle"]["link"] == {"url": "https://example.com"}
 
 
 def test_paragraph_style_only_includes_what_the_source_specified():

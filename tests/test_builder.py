@@ -78,7 +78,10 @@ def test_paragraphs_land_in_order_without_extra_blanks():
 def test_indices_are_contiguous_and_start_after_the_section_break():
     _document, simulator, _result = copy(paragraph("abc") + paragraph("de"))
     content = simulator.get_document()["body"]["content"]
-    assert content[0]["startIndex"] == 0 and "sectionBreak" in content[0]
+    # The API leaves startIndex out when it is zero, so the section break -- the
+    # one element that starts at 0 -- has no startIndex at all.
+    assert "startIndex" not in content[0] and "sectionBreak" in content[0]
+    assert content[0]["endIndex"] == 1
     assert (content[1]["startIndex"], content[1]["endIndex"]) == (1, 5)
     assert (content[2]["startIndex"], content[2]["endIndex"]) == (5, 8)
 
@@ -198,13 +201,17 @@ def test_table_cells_receive_their_own_text():
 def test_text_after_a_table_continues_at_the_right_index():
     body = paragraph("before") + table_xml([row_xml([cell_xml("in")])], grid=("9360",)) + paragraph("after")
     _document, simulator, _result = copy(body)
-    assert texts(simulator) == ["before", "in", "after"]
+    # Docs always keeps a paragraph immediately before a table, so an empty one
+    # separates "before" from the table itself.
+    assert texts(simulator) == ["before", "", "in", "after"]
     content = simulator.get_document()["body"]["content"]
-    table_element = content[2]
-    assert content[3]["startIndex"] == table_element["endIndex"]
+    table_index = next(i for i, e in enumerate(content) if "table" in e)
+    table_element = content[table_index]
+    assert content[table_index - 1]["endIndex"] == table_element["startIndex"]
+    assert content[table_index + 1]["startIndex"] == table_element["endIndex"]
 
 
-def test_column_widths_and_header_rows_are_set():
+def test_column_widths_are_set_and_header_rows_are_reported():
     body = table_xml(
         [
             "<w:tr><w:trPr><w:tblHeader/></w:trPr>%s%s</w:tr>"
@@ -213,14 +220,17 @@ def test_column_widths_and_header_rows_are_set():
         ],
         grid=("3000", "6360"),
     )
-    _document, simulator, _result = copy(body)
+    _document, simulator, result = copy(body)
     table = first_table(simulator)
     widths = [
         properties["width"]["magnitude"]
         for properties in table["tableStyle"]["tableColumnProperties"]
     ]
     assert widths == [150.0, 318.0]
-    assert table["tableRows"][0]["tableRowStyle"]["tableHeader"] is True
+    # tableHeader is read-only in the API, so the header row is reported rather
+    # than requested -- asking for it fails the whole batch.
+    assert not table["tableRows"][0].get("tableRowStyle", {}).get("tableHeader")
+    assert any("header row" in note.message for note in result.notes)
 
 
 def test_horizontally_merged_cells_are_merged_and_filled():
@@ -276,15 +286,22 @@ def test_nested_tables_are_written_inside_their_cell():
     _document, simulator, _result = copy(outer)
     outer_table = first_table(simulator)
     cell_content = outer_table["tableRows"][0]["tableCells"][0]["content"]
-    inner_table = cell_content[0]["table"]
+    # A cell, like the body, always opens with a paragraph before any table.
+    nested_index = next(i for i, e in enumerate(cell_content) if "table" in e)
+    inner_table = cell_content[nested_index]["table"]
     assert text_of(inner_table["tableRows"][0]["tableCells"][0]["content"][0]) == "inner"
-    assert text_of(cell_content[1]) == "tail"
+    assert text_of(cell_content[-1]) == "tail"
 
 
 def test_a_table_can_be_the_first_block():
     body = table_xml([row_xml([cell_xml("only")])], grid=("9360",))
     _document, simulator, _result = copy(body)
-    assert texts(simulator)[0] == "only"
+    # A Google Doc cannot begin with a table: the API always leaves a paragraph
+    # in front of one, so the cell text is the first non-empty text.
+    content = simulator.get_document()["body"]["content"]
+    assert "paragraph" in content[1]
+    assert "table" in content[2]
+    assert next(t for t in texts(simulator) if t) == "only"
 
 
 def test_lists_inside_table_cells_get_bullets():
@@ -522,8 +539,8 @@ def test_footnotes_inside_a_table_are_reported_not_attempted():
     )
     assert simulator.get_document()["footnotes"] == {}
     assert any("footnotes inside" in note.message for note in result.notes)
-    # The trailing blank is the paragraph Docs always keeps after a table.
-    assert texts(simulator) == ["cell", ""]
+    # Docs always keeps a paragraph both before and after a table.
+    assert texts(simulator) == ["", "cell", ""]
 
 
 def test_section_styles_use_a_range_the_api_will_accept():
