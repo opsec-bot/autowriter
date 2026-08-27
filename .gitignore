@@ -1,7 +1,28 @@
+# Python
 __pycache__/
 *.py[cod]
 .venv/
+venv/
 .pytest_cache/
 *.egg-info/
 build/
 dist/
+
+# Credentials -- never commit these
+client_secret*.json
+*service-account*.json
+*-key.json
+credentials.json
+token.json
+.env
+
+# Local documents used for testing a copy
+/*.docx
+/*.pdf
+
+# Editors and tooling
+.letta/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

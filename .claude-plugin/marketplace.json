@@ -1,0 +1,23 @@
+{
+  "name": "autowriter",
+  "owner": {
+    "name": "opsec-bot",
+    "url": "https://github.com/opsec-bot"
+  },
+  "description": "The autowriter skill: .docx into Google Docs, one editing operation at a time.",
+  "plugins": [
+    {
+      "name": "autowriter",
+      "source": "./",
+      "description": "Recreate a .docx inside a Google Doc one editing operation at a time, and report exactly what could not be reproduced.",
+      "version": "0.1.0",
+      "displayName": "autowriter",
+      "author": { "name": "opsec-bot" },
+      "homepage": "https://github.com/opsec-bot/autowriter",
+      "repository": "https://github.com/opsec-bot/autowriter",
+      "license": "MIT",
+      "keywords": ["docx", "google-docs", "word", "document-conversion"],
+      "category": "productivity"
+    }
+  ]
+}

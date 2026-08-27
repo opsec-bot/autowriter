@@ -1,0 +1,14 @@
+{
+  "name": "autowriter",
+  "description": "Recreate a .docx inside a Google Doc one editing operation at a time, and report exactly what could not be reproduced.",
+  "version": "0.1.0",
+  "author": {
+    "name": "opsec-bot",
+    "url": "https://github.com/opsec-bot"
+  },
+  "homepage": "https://github.com/opsec-bot/autowriter",
+  "repository": "https://github.com/opsec-bot/autowriter",
+  "license": "MIT",
+  "keywords": ["docx", "google-docs", "word", "document-conversion", "office"],
+  "skills": ["./skills/"]
+}

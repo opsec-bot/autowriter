@@ -34,6 +34,45 @@ $ autowriter plan report.docx | head -20
 That makes the result predictable, reviewable, and — because the copy is read
 back and compared against the source — checkable.
 
+## Use it from Claude
+
+autowriter ships as an [Agent Skill](https://code.claude.com/docs/en/skills), so
+Claude can drive the whole thing for you — "put this Word document into Google
+Docs" is the entire interface. Pick whichever install you already have a tool
+for:
+
+```bash
+# Claude Code, as a plugin (also gets updates via /plugin marketplace update)
+/plugin marketplace add opsec-bot/autowriter
+/plugin install autowriter@autowriter
+
+# any agent, via the skills CLI -- Claude Code, Cursor, opencode, ...
+npx skills add opsec-bot/autowriter          # this project
+npx skills add opsec-bot/autowriter -g       # every project
+
+# or by hand: it is just a folder
+git clone https://github.com/opsec-bot/autowriter
+cp -r autowriter/skills/autowriter ~/.claude/skills/docx-to-google-docs
+```
+
+Then install the tool the skill drives, once:
+
+```bash
+pip install "autowriter[google] @ git+https://github.com/opsec-bot/autowriter"
+```
+
+That is the whole setup for `check`. Writing a real Google Doc additionally
+needs a Google account with two APIs turned on —
+[skills/autowriter/reference/google-setup.md](skills/autowriter/reference/google-setup.md)
+walks through it click by click, and Claude will walk you through it too if you
+just ask it to copy a document.
+
+Ask for it in any of these shapes:
+
+> convert quarterly-report.docx to a Google Doc
+> Drive's import destroyed my formatting — can you do it properly?
+> check whether this .docx will survive the trip before you copy it
+
 ## Install
 
 ```
@@ -186,9 +225,15 @@ runs against — index arithmetic is not something you can verify by reading.
 python -m pytest
 ```
 
-99 tests, no network, no credentials, no fixture binaries: the .docx files are
+117 tests, no network, no credentials, no fixture binaries: the .docx files are
 assembled from raw XML at test time (`tests/fixtures.py`), copied through the
 simulator, and verified.
+
+The packaged skill and the plugin manifests have their own check:
+
+```
+python scripts/validate_skill.py
+```
 
 ## Layout
 
@@ -200,4 +245,14 @@ autowriter/
   cli.py            check / copy / plan / inspect
   docxread/         package, styles, numbering, properties, reader
   gdocs/            requests, builder, simulator, verify, client, auth
+skills/autowriter/  the Agent Skill: SKILL.md plus its reference files
+.claude-plugin/     plugin and marketplace manifests, for /plugin install
+scripts/            validate_skill.py
+docs/               live-api-fixes.md -- the seven bugs the simulator hid
+tests/              117 tests, fixtures assembled from raw XML
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Licensed under the
+[MIT License](LICENSE).

@@ -9,6 +9,24 @@ description = "Recreate a .docx inside a Google Doc, one editing operation at a 
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = []
+authors = [{ name = "opsec-bot", email = "71150660+opsec-bot@users.noreply.github.com" }]
+keywords = ["docx", "google-docs", "word", "document-conversion", "openxml"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Office/Business :: Office Suites",
+    "Topic :: Text Processing :: Markup :: XML",
+]
+
+[project.urls]
+Homepage = "https://github.com/opsec-bot/autowriter"
+Source = "https://github.com/opsec-bot/autowriter"
+Issues = "https://github.com/opsec-bot/autowriter/issues"
 
 [project.optional-dependencies]
 # Only the `copy` command needs these; reading, planning and checking do not.
