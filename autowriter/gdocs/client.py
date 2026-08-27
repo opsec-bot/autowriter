@@ -107,6 +107,17 @@ class HostedImages:
     keep: bool = False
 
     def upload(self, assets: Dict[str, ImageAsset]) -> Dict[str, str]:
+        # Each uploaded file is world-readable until it is deleted again, so a
+        # failure part way through must not leave the ones already uploaded
+        # behind: they are copies of the user's document, shared with anyone
+        # holding the link, and nothing else would ever clean them up.
+        try:
+            return self._upload(assets)
+        except BaseException:
+            self.cleanup()
+            raise
+
+    def _upload(self, assets: Dict[str, ImageAsset]) -> Dict[str, str]:
         http = _media_module()
         for asset_id, asset in assets.items():
             data, content_type = _as_supported_image(asset, self.notes)
@@ -135,6 +146,7 @@ class HostedImages:
         return self.uris
 
     def cleanup(self) -> None:
+        """Delete the temporary Drive copies.  Safe to call more than once."""
         if self.keep:
             return
         for file_id in self.file_ids:

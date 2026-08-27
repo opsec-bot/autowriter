@@ -100,3 +100,95 @@ def test_check_fails_when_the_source_cannot_be_matched(tmp_path, capsys, monkeyp
     monkeypatch.setattr(builder.SegmentWriter, "write_paragraph", skip_second)
     assert main(["check", str(path)]) == 1
     assert "difference" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# copy: the one command that talks to Google
+# ---------------------------------------------------------------------------
+
+
+IMAGE_PARAGRAPH = (
+    "<w:p><w:r><w:drawing><wp:inline>"
+    '<wp:extent cx="914400" cy="457200"/>'
+    '<wp:docPr id="1" name="Picture 1"/>'
+    '<a:graphic><a:graphicData><pic:pic><pic:blipFill><a:blip r:embed="rIdImg"/>'
+    "</pic:blipFill></pic:pic></a:graphicData></a:graphic>"
+    "</wp:inline></w:drawing></w:r></w:p>"
+)
+
+IMAGE_REL = (
+    '<Relationship Id="rIdImg" '
+    'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+    'Target="media/image1.png"/>'
+)
+
+
+@pytest.fixture
+def illustrated(tmp_path):
+    from .fixtures import PNG_BYTES
+
+    body = paragraph("With a picture") + IMAGE_PARAGRAPH + SECTION
+    path = tmp_path / "illustrated.docx"
+    path.write_bytes(
+        build_docx(
+            body,
+            extra_parts={"word/media/image1.png": PNG_BYTES},
+            extra_rels=IMAGE_REL,
+        ).getvalue()
+    )
+    return str(path)
+
+
+@pytest.fixture
+def fake_google(monkeypatch):
+    """Wire `copy` up to the simulator and a Drive that records what it is told."""
+    from autowriter.gdocs import auth, client as api
+    from autowriter.gdocs.simulator import SimulatedDocs
+
+    from .test_client import _FakeDrive, _Media
+
+    drive = _FakeDrive()
+    monkeypatch.setattr(auth, "load_credentials", lambda **kwargs: object())
+    monkeypatch.setattr(auth, "build_services", lambda credentials: (object(), drive))
+    monkeypatch.setattr(api, "create_document", lambda service, title: "doc-1")
+    monkeypatch.setattr(api, "_media_module", lambda: _Media)
+    monkeypatch.setattr(api, "ApiTransport", lambda service, document_id: SimulatedDocs())
+    return drive
+
+
+def test_copy_reports_the_document_url(sample, fake_google, capsys):
+    assert main(["copy", sample]) == 0
+    assert "https://docs.google.com/document/d/doc-1/edit" in capsys.readouterr().out
+
+
+def test_copy_removes_the_temporary_image_uploads(illustrated, fake_google, capsys):
+    assert main(["copy", illustrated]) == 0
+    assert fake_google.uploaded, "the image should have been hosted for Docs to fetch"
+    assert fake_google.deleted == fake_google.uploaded
+
+
+def test_a_failure_during_the_copy_still_removes_the_uploads(
+    illustrated, fake_google, monkeypatch
+):
+    # The images are shared with anyone holding the link for as long as they
+    # exist, so no error path may leave them behind.
+    from autowriter import cli
+
+    class _Exploding:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def copy(self, document):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(cli, "Copier", _Exploding)
+    with pytest.raises(RuntimeError):
+        main(["copy", illustrated])
+    assert fake_google.deleted == fake_google.uploaded
+    assert fake_google.deleted
+
+
+def test_keeping_the_uploads_leaves_them_in_place(illustrated, fake_google, capsys):
+    assert main(["copy", illustrated, "--keep-image-uploads"]) == 0
+    assert fake_google.uploaded
+    assert fake_google.deleted == []

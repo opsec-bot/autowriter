@@ -88,11 +88,24 @@ def _installed_app_flow(client_secrets: str, token_file: Optional[str], scopes: 
         else:
             flow = flow_module.InstalledAppFlow.from_client_secrets_file(client_secrets, scopes)
             credentials = flow.run_local_server(port=0)
-        os.makedirs(os.path.dirname(token_file), exist_ok=True)
-        with open(token_file, "w", encoding="utf-8") as handle:
-            handle.write(credentials.to_json())
-        os.chmod(token_file, 0o600)
+        _write_token(token_file, credentials.to_json())
     return credentials
+
+
+def _write_token(path: str, contents: str) -> None:
+    """Cache the token, readable only by its owner.
+
+    Created with the restrictive mode rather than chmod'ed afterwards: the file
+    holds a refresh token, and between ``open`` and ``chmod`` it would be
+    readable by anyone the umask allows.
+    """
+    directory = os.path.dirname(path)
+    if directory:  # a bare filename has no directory to create
+        os.makedirs(directory, exist_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(contents)
+    os.chmod(path, 0o600)  # an existing file keeps its old mode through O_CREAT
 
 
 def build_services(credentials):

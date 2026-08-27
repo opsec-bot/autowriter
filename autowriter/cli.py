@@ -65,7 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
     copy.add_argument(
         "--keep-image-uploads",
         action="store_true",
-        help="leave the temporary Drive copies of images in place",
+        help="leave the temporary Drive copies of images in place -- they stay "
+        "readable by anyone with the link, so this is for debugging only",
     )
     copy.add_argument("--no-verify", action="store_true", help="skip reading the result back")
     copy.add_argument("--json", action="store_true", help="emit the report as JSON")
@@ -149,14 +150,15 @@ def _copy(args: argparse.Namespace) -> int:
     title = args.title or document.title or os.path.splitext(os.path.basename(args.docx))[0]
     document_id = args.document_id or api.create_document(docs_service, title)
 
+    # Built before anything is uploaded so that the ``finally`` below covers the
+    # upload too: every hosted image is world-readable until it is deleted.
     hosted = None
-    image_uris = {}
     if document.assets and not args.no_images:
-        hosted = api.collect_image_uris(document, drive_service, keep=args.keep_image_uploads)
-        image_uris = hosted.uris
+        hosted = api.HostedImages(drive=drive_service, keep=args.keep_image_uploads)
 
     transport = api.ApiTransport(docs_service, document_id)
     try:
+        image_uris = hosted.upload(document.assets) if hosted is not None else {}
         result = Copier(transport, image_uris, options).copy(document)
     finally:
         if hosted is not None:
