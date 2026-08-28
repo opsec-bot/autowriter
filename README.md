@@ -116,7 +116,7 @@ Google setup for `autowriter copy`
   [missing] credentials  no service account key, OAuth token or gcloud login found
 
 Next: sign in with gcloud
-    gcloud auth application-default login --scopes=https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.file
+    gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.file
 ```
 
 It checks the client libraries, the credential, its scopes, and whether both
@@ -247,7 +247,7 @@ runs against — index arithmetic is not something you can verify by reading.
 python -m pytest
 ```
 
-140 tests, no network, no credentials, no fixture binaries: the .docx files are
+149 tests, no network, no credentials, no fixture binaries: the .docx files are
 assembled from raw XML at test time (`tests/fixtures.py`), copied through the
 simulator, and verified.
 
@@ -271,7 +271,7 @@ skills/autowriter/  the Agent Skill: SKILL.md plus its reference files
 .claude-plugin/     plugin and marketplace manifests, for /plugin install
 scripts/            validate_skill.py
 docs/               live-api-fixes.md -- the seven bugs the simulator hid
-tests/              140 tests, fixtures assembled from raw XML
+tests/              149 tests, fixtures assembled from raw XML
 ```
 
 ## Contributing

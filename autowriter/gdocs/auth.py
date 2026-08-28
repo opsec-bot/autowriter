@@ -31,6 +31,10 @@ INSTALL_HINT = (
 )
 
 
+#: Where an installed-app sign-in is remembered.
+DEFAULT_TOKEN_FILE = "~/.autowriter/token.json"
+
+
 class AuthError(RuntimeError):
     pass
 
@@ -69,6 +73,13 @@ def load_credentials(
     if client_secrets:
         return _installed_app_flow(client_secrets, token_file, scopes, allow_browser)
 
+    # A cached sign-in is a complete credential in its own right -- it carries
+    # the client id and secret that minted it -- so once you have signed in,
+    # the client secrets file is no longer needed to keep going.
+    cached = _cached_token(token_file or DEFAULT_TOKEN_FILE, scopes)
+    if cached is not None:
+        return cached
+
     google_auth = _require("google.auth")
     try:
         credentials, _project = google_auth.default(scopes=scopes)
@@ -80,13 +91,43 @@ def load_credentials(
         ) from error
 
 
+def _cached_token(token_file: str, scopes: List[str]):
+    """Return a previously cached sign-in, refreshed if it has gone stale.
+
+    Never opens a browser: an expired access token is renewed with the refresh
+    token the file already holds, and anything that cannot be renewed is
+    reported rather than silently re-prompted.
+    """
+    token_file = os.path.expanduser(token_file)
+    if not os.path.exists(token_file):
+        return None
+
+    credentials_module = _require("google.oauth2.credentials")
+    credentials = credentials_module.Credentials.from_authorized_user_file(token_file, scopes)
+    if credentials.valid:
+        return credentials
+    if not (credentials.expired and credentials.refresh_token):
+        return None
+
+    request_module = _require("google.auth.transport.requests")
+    try:
+        credentials.refresh(request_module.Request())
+    except Exception as error:
+        raise AuthError(
+            "The cached sign-in at %s could not be refreshed (%s).\n"
+            "Sign in again:  autowriter setup --login --force" % (token_file, error)
+        ) from error
+    _write_token(token_file, credentials.to_json())
+    return credentials
+
+
 def _installed_app_flow(
     client_secrets: str,
     token_file: Optional[str],
     scopes: List[str],
     allow_browser: bool = True,
 ):
-    token_file = token_file or os.path.expanduser("~/.autowriter/token.json")
+    token_file = os.path.expanduser(token_file or DEFAULT_TOKEN_FILE)
     credentials_module = _require("google.oauth2.credentials")
     request_module = _require("google.auth.transport.requests")
     flow_module = _require("google_auth_oauthlib.flow")

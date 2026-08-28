@@ -8,13 +8,18 @@ the command that does it, so most of this file is only worth reading for the
 step you are actually stuck on. Run it again after each step; it is the thing
 that decides whether you are finished, and it exits 0 when you are.
 
-If `gcloud` is installed, the whole of this file collapses to two commands and
-no console clicking at all:
+If `gcloud` is installed **and your account is on Google Workspace**, most of
+this file collapses to two commands:
 
 ```bash
 gcloud services enable docs.googleapis.com drive.googleapis.com
-gcloud auth application-default login   --scopes=https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.file
+gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.file
 ```
+
+On a personal `@gmail.com` account that second command fails with **"This app
+is blocked"**: `documents` is a sensitive scope, and gcloud's own OAuth client
+is not verified to request it. Nothing works around that -- use Option A
+below, which takes about two minutes and then never needs repeating.
 
 ## Contents
 
@@ -49,6 +54,7 @@ Enabling takes a few seconds and only has to be done once per project.
 
 | You are | Use | Why |
 |---|---|---|
+| On a personal @gmail.com account | **Option A**, OAuth client | The only route Google permits for the Docs scope |
 | A person copying your own documents | **Option A**, OAuth client | The doc lands in your own Drive, owned by you |
 | A script, server or scheduled job | **Option B**, service account | No browser, no human |
 | Already using `gcloud` | **Option C**, ADC | Nothing more to download |
@@ -99,20 +105,29 @@ to reach it:
 
 ## Option C: application default credentials
 
+Workspace accounts only -- see the note at the top of this file.
+
 ```bash
 gcloud auth application-default login \
-  --scopes=https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.file
+  --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.file
 autowriter copy report.docx
 ```
 
 Nothing else to pass — ADC is the last source tried, so it is used when no key
 and no client secrets are given.
 
+`cloud-platform` is in that list because gcloud refuses the login without it
+(`scope is required but not requested`), not because autowriter uses it. Drop
+it and the command fails before a browser ever opens.
+
 ## Where the token is stored
 
 `~/.autowriter/token.json`, created with `0600` permissions after the first
-OAuth sign-in. Delete it to force a fresh sign-in. Override the location with
-`--token-file`.
+OAuth sign-in. It carries the client id and secret that minted it, so it is a
+complete credential on its own: once it exists, `copy` finds it with no flags
+and no environment variables, and refreshes it when it goes stale. Delete it
+to force a fresh sign-in, or run `autowriter setup --login --force`. Override
+the location with `--token-file`.
 
 Environment variables, if you prefer them to flags:
 

@@ -61,21 +61,46 @@ def test_missing_libraries_stop_the_diagnosis_there(monkeypatch, no_gcloud):
     assert "pip install" in diagnosis.next_step.command
 
 
-def test_no_credentials_recommends_gcloud_when_it_is_there(installed, gcloud, monkeypatch):
+def test_no_credentials_recommends_signing_in_not_gcloud(installed, gcloud, monkeypatch):
+    # gcloud is installed here, and is still not the recommendation: its OAuth
+    # client is not verified for the `documents` scope, so Google refuses the
+    # login outright on a personal account.
     monkeypatch.setattr(doctor, "load_credentials", _raising(auth.AuthError("nothing")))
     diagnosis = doctor.diagnose()
 
     step = diagnosis.next_step
     assert step.name == "credentials"
-    assert step.command == doctor.GCLOUD_LOGIN
-    assert "--scopes=" in step.command
+    assert step.command == "autowriter setup --login --client-secrets client_secret.json"
+    assert "Workspace" in step.fix
 
 
-def test_no_credentials_falls_back_to_the_console_walkthrough(installed, no_gcloud, monkeypatch):
+def test_no_credentials_points_at_the_walkthrough(installed, no_gcloud, monkeypatch):
     monkeypatch.setattr(doctor, "load_credentials", _raising(auth.AuthError("nothing")))
     diagnosis = doctor.diagnose()
 
-    assert doctor.SETUP_REFERENCE in diagnosis.next_step.command
+    assert doctor.SETUP_REFERENCE in diagnosis.next_step.fix
+    assert "Workspace" not in diagnosis.next_step.fix
+
+
+def test_the_gcloud_login_asks_for_the_scope_gcloud_demands(installed):
+    # gcloud rejects an application-default login that does not also request
+    # cloud-platform, however irrelevant it is to copying a document.
+    assert doctor.GCLOUD_SCOPE in doctor.GCLOUD_LOGIN
+    for scope in doctor.SCOPES:
+        assert scope in doctor.GCLOUD_LOGIN
+
+
+def test_a_cached_sign_in_is_reported_as_the_credential(installed, no_gcloud, monkeypatch, tmp_path):
+    token = tmp_path / "token.json"
+    token.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(doctor, "load_credentials", lambda **kwargs: _credentials())
+    monkeypatch.setattr(doctor, "_check_apis", lambda credentials, gcloud: [])
+
+    diagnosis = doctor.diagnose(token_file=str(token))
+    credentials_check = [c for c in diagnosis.checks if c.name == "credentials"][0]
+
+    assert diagnosis.ready
+    assert "signed in" in credentials_check.detail
 
 
 def test_client_secrets_without_a_token_asks_for_a_sign_in(installed, gcloud, monkeypatch, tmp_path):
@@ -286,7 +311,8 @@ def test_setup_json_is_machine_readable(installed, gcloud, monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["ready"] is False
     assert payload["gcloud"] is True
-    assert payload["nextStep"]["command"] == doctor.GCLOUD_LOGIN
+    assert payload["nextStep"]["name"] == "credentials"
+    assert payload["nextStep"]["command"].startswith("autowriter setup --login")
 
 
 def test_setup_exits_zero_when_there_is_nothing_left_to_do(installed, no_gcloud, monkeypatch, capsys):

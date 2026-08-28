@@ -12,7 +12,7 @@ pip install -e ".[google,dev]"
 ## Before opening a pull request
 
 ```bash
-python -m pytest                 # 140 tests, no network, no credentials
+python -m pytest                 # 149 tests, no network, no credentials
 python -m pyflakes autowriter tests
 python scripts/validate_skill.py # only if you touched skills/ or .claude-plugin/
 ```

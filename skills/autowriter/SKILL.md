@@ -76,7 +76,7 @@ to the user instead, prefixed with `!` so they run in their own terminal:
 
 ```
 ! autowriter setup --login --client-secrets client_secret.json
-! gcloud auth application-default login --scopes=https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.file
+! gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.file
 ```
 
 Say plainly that a browser window will open and that you will wait. Re-run

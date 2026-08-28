@@ -42,7 +42,14 @@ PROBE_DOCUMENT_ID = "autowriter-probe-does-not-exist"
 CONSOLE_DOCS_API = "https://console.cloud.google.com/apis/library/docs.googleapis.com"
 CONSOLE_DRIVE_API = "https://console.cloud.google.com/apis/library/drive.googleapis.com"
 
-GCLOUD_LOGIN = "gcloud auth application-default login --scopes=%s" % ",".join(SCOPES)
+#: gcloud refuses an application-default login that does not also request
+#: cloud-platform ("scope is required but not requested"), so the command we
+#: print has to ask for it -- even though autowriter itself never uses it.
+GCLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+
+GCLOUD_LOGIN = "gcloud auth application-default login --scopes=%s" % ",".join(
+    (GCLOUD_SCOPE,) + tuple(SCOPES)
+)
 
 SETUP_REFERENCE = "skills/autowriter/reference/google-setup.md"
 
@@ -197,7 +204,7 @@ def _check_credentials(
 ) -> Tuple[Optional[object], Check]:
     service_account = service_account or os.environ.get("AUTOWRITER_SERVICE_ACCOUNT")
     client_secrets = client_secrets or os.environ.get("AUTOWRITER_CLIENT_SECRETS")
-    resolved_token = token_file or os.path.expanduser(DEFAULT_TOKEN_FILE)
+    resolved_token = os.path.normpath(os.path.expanduser(token_file or DEFAULT_TOKEN_FILE))
 
     named = (("service account key", service_account), ("client secrets", client_secrets))
     for label, path in named:
@@ -229,26 +236,32 @@ def _check_credentials(
         return None, Check(
             "credentials",
             MISSING,
-            "no service account key, OAuth token or gcloud login found",
-            fix="sign in with gcloud" if gcloud else "get a credential",
-            command=GCLOUD_LOGIN if gcloud else _console_credential_hint(),
+            "no service account key, cached sign-in or gcloud login found",
+            fix=_credential_fix(gcloud),
+            command="autowriter setup --login --client-secrets client_secret.json",
         )
 
     if service_account:
         detail = "service account key %s" % service_account
-    elif client_secrets:
-        detail = "OAuth token cached at %s" % resolved_token
+    elif os.path.exists(resolved_token):
+        detail = "signed in; token cached at %s" % resolved_token
     else:
         detail = "application default credentials"
     return credentials, Check("credentials", OK, detail)
 
 
-def _console_credential_hint() -> str:
-    return (
-        "install the gcloud CLI and run:\n"
-        "%s\n"
-        "or create an OAuth client -- see %s" % (GCLOUD_LOGIN, SETUP_REFERENCE)
-    )
+def _credential_fix(gcloud: bool) -> str:
+    """How to get a credential.
+
+    Not gcloud, even when gcloud is installed.  ``documents`` is a sensitive
+    scope and gcloud's own OAuth client is not verified to request it, so an
+    application-default login is refused outright ("This app is blocked") on
+    any personal account.  Recommending it would send most people into a wall.
+    """
+    hint = "create a desktop OAuth client (see %s), then sign in once" % SETUP_REFERENCE
+    if gcloud:
+        hint += "; on Google Workspace, `%s` is quicker" % GCLOUD_LOGIN
+    return hint
 
 
 def _check_scopes(credentials) -> Check:
@@ -359,7 +372,7 @@ def login(
         )
 
     client_secrets = client_secrets or os.environ.get("AUTOWRITER_CLIENT_SECRETS")
-    resolved_token = token_file or os.path.expanduser(DEFAULT_TOKEN_FILE)
+    resolved_token = os.path.normpath(os.path.expanduser(token_file or DEFAULT_TOKEN_FILE))
 
     if not client_secrets:
         return 2, _nothing_to_sign_in_with()
