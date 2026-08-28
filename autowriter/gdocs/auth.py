@@ -47,8 +47,15 @@ def load_credentials(
     client_secrets: Optional[str] = None,
     token_file: Optional[str] = None,
     scopes: Optional[Sequence[str]] = None,
+    allow_browser: bool = True,
 ):
-    """Return credentials, preferring whichever source the caller configured."""
+    """Return credentials, preferring whichever source the caller configured.
+
+    With ``allow_browser=False`` a missing OAuth token is an error rather than
+    an invitation: callers that cannot answer a sign-in prompt -- a diagnosis,
+    an agent, anything non-interactive -- would otherwise block until it timed
+    out.
+    """
     scopes = list(scopes or SCOPES)
     service_account = service_account or os.environ.get("AUTOWRITER_SERVICE_ACCOUNT")
     client_secrets = client_secrets or os.environ.get("AUTOWRITER_CLIENT_SECRETS")
@@ -60,7 +67,7 @@ def load_credentials(
         )
 
     if client_secrets:
-        return _installed_app_flow(client_secrets, token_file, scopes)
+        return _installed_app_flow(client_secrets, token_file, scopes, allow_browser)
 
     google_auth = _require("google.auth")
     try:
@@ -73,7 +80,12 @@ def load_credentials(
         ) from error
 
 
-def _installed_app_flow(client_secrets: str, token_file: Optional[str], scopes: List[str]):
+def _installed_app_flow(
+    client_secrets: str,
+    token_file: Optional[str],
+    scopes: List[str],
+    allow_browser: bool = True,
+):
     token_file = token_file or os.path.expanduser("~/.autowriter/token.json")
     credentials_module = _require("google.oauth2.credentials")
     request_module = _require("google.auth.transport.requests")
@@ -86,6 +98,11 @@ def _installed_app_flow(client_secrets: str, token_file: Optional[str], scopes: 
         if credentials is not None and credentials.expired and credentials.refresh_token:
             credentials.refresh(request_module.Request())
         else:
+            if not allow_browser:
+                raise AuthError(
+                    "Not signed in yet.  Run: autowriter setup --login "
+                    "--client-secrets %s" % client_secrets
+                )
             flow = flow_module.InstalledAppFlow.from_client_secrets_file(client_secrets, scopes)
             credentials = flow.run_local_server(port=0)
         _write_token(token_file, credentials.to_json())

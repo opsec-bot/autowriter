@@ -61,11 +61,13 @@ Then install the tool the skill drives, once:
 pip install "autowriter[google] @ git+https://github.com/opsec-bot/autowriter"
 ```
 
-That is the whole setup for `check`. Writing a real Google Doc additionally
-needs a Google account with two APIs turned on —
+That is the whole setup for `check`. For a real Google Doc, Claude runs
+`autowriter setup`, reads back exactly what is missing, and works through it
+with you one step at a time — handing you the sign-in command to run yourself
+when it gets to that, because a browser prompt is not something an agent can
+answer.
 [skills/autowriter/reference/google-setup.md](skills/autowriter/reference/google-setup.md)
-walks through it click by click, and Claude will walk you through it too if you
-just ask it to copy a document.
+is the same ground click by click, if you would rather read it.
 
 Ask for it in any of these shapes:
 
@@ -86,6 +88,7 @@ Parsing, planning and checking need nothing but the standard library.
 ## Use
 
 ```
+autowriter setup                   # what is missing before `copy` can work
 autowriter check   report.docx     # copy into an in-memory Google Docs model, report fidelity
 autowriter copy    report.docx     # copy into a real Google Doc
 autowriter plan    report.docx     # print the batchUpdate requests as JSON
@@ -102,6 +105,25 @@ document, `--document-id` to write into an existing (preferably empty) one,
 stored casing of "All caps" text, `--keep-hidden` to include hidden text.
 
 ### Credentials
+
+Start here:
+
+```
+$ autowriter setup
+Google setup for `autowriter copy`
+
+  [ok]      libraries    google-api-python-client, google-auth
+  [missing] credentials  no service account key, OAuth token or gcloud login found
+
+Next: sign in with gcloud
+    gcloud auth application-default login --scopes=https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.file
+```
+
+It checks the client libraries, the credential, its scopes, and whether both
+APIs are actually enabled in that project — each of which otherwise surfaces
+half way through a copy as a raw API error. It exits 0 when a copy will work,
+and never opens a browser: `autowriter setup --login` is the separate,
+deliberate step that does, and `--json` makes the whole diagnosis scriptable.
 
 `copy` needs access to the Docs and Drive APIs. Enable both in a Google Cloud
 project, then use whichever suits you:
@@ -225,7 +247,7 @@ runs against — index arithmetic is not something you can verify by reading.
 python -m pytest
 ```
 
-117 tests, no network, no credentials, no fixture binaries: the .docx files are
+140 tests, no network, no credentials, no fixture binaries: the .docx files are
 assembled from raw XML at test time (`tests/fixtures.py`), copied through the
 simulator, and verified.
 
@@ -242,14 +264,14 @@ autowriter/
   ir.py             intermediate representation: the fully-resolved document
   units.py          twips, half-points, EMU, UTF-16 index units
   report.py         the fidelity report
-  cli.py            check / copy / plan / inspect
+  cli.py            setup / check / copy / plan / inspect
   docxread/         package, styles, numbering, properties, reader
-  gdocs/            requests, builder, simulator, verify, client, auth
+  gdocs/            requests, builder, simulator, verify, client, auth, doctor
 skills/autowriter/  the Agent Skill: SKILL.md plus its reference files
 .claude-plugin/     plugin and marketplace manifests, for /plugin install
 scripts/            validate_skill.py
 docs/               live-api-fixes.md -- the seven bugs the simulator hid
-tests/              117 tests, fixtures assembled from raw XML
+tests/              140 tests, fixtures assembled from raw XML
 ```
 
 ## Contributing

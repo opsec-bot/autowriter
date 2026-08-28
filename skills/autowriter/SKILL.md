@@ -13,6 +13,7 @@ The command is `autowriter`. It has four subcommands:
 
 | Command | Network | Credentials | What it does |
 |---|---|---|---|
+| `autowriter setup` | yes | no | Says what is missing before `copy` can work, and the command that fixes it |
 | `autowriter check FILE.docx` | no | no | Runs the whole copy against an in-memory Docs model and reports fidelity |
 | `autowriter copy FILE.docx` | yes | yes | Copies into a real Google Doc |
 | `autowriter plan FILE.docx` | no | no | Prints the batchUpdate requests as JSON |
@@ -25,7 +26,7 @@ Copy this checklist and work through it:
 ```
 - [ ] Step 1: Confirm autowriter is installed
 - [ ] Step 2: Run `check` and read the fidelity report to the user
-- [ ] Step 3: Confirm credentials exist (only if the user wants a real copy)
+- [ ] Step 3: Run `autowriter setup` and clear whatever it names (copy only)
 - [ ] Step 4: Run `copy` and give the user the document URL
 ```
 
@@ -53,21 +54,44 @@ line the user asks about.
 If `check` reports differences other than the known-unsupported list, stop and
 show the output; that is a bug worth reporting, not something to work around.
 
-**Step 3 — credentials, only for `copy`.**
+**Step 3 — setup, only for `copy`.**
 
-`copy` needs the Google Docs API and the Google Drive API enabled and one of
-three credential types. If the user has none set up, walk them through
-[reference/google-setup.md](reference/google-setup.md); it is a 5-minute,
-click-by-click console walkthrough. Never guess at credentials or invent a
-project id.
-
-Check first whether something is already configured:
+Do not guess at what is configured, and do not read the walkthrough at people
+who do not need it. Ask the tool:
 
 ```bash
-echo "$AUTOWRITER_SERVICE_ACCOUNT" "$AUTOWRITER_CLIENT_SECRETS"
-ls ~/.autowriter/token.json 2>/dev/null
-gcloud auth application-default print-access-token >/dev/null 2>&1 && echo "ADC present"
+autowriter setup --json
 ```
+
+It exits 0 when a copy will work, 1 when something is missing, 2 on an error.
+The JSON carries `ready`, an ordered `checks` array, and `nextStep` — the one
+thing to fix now, with the exact command that fixes it. Do them in order: a
+credential cannot be scope-checked before it exists, and an API cannot be
+probed without one.
+
+Run the `nextStep.command` yourself **unless it signs someone in**. Those two
+open a browser and then block until a human finishes; started from here they
+hold the tool call open until it times out, and the sign-in is lost. Hand them
+to the user instead, prefixed with `!` so they run in their own terminal:
+
+```
+! autowriter setup --login --client-secrets client_secret.json
+! gcloud auth application-default login --scopes=https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.file
+```
+
+Say plainly that a browser window will open and that you will wait. Re-run
+`autowriter setup` afterwards — it is the source of truth, not their report of
+what happened.
+
+What no command can do for them: creating the OAuth client and downloading
+`client_secret.json` is Cloud Console clicking, and there is no API for it.
+That is the one time to walk through
+[reference/google-setup.md](reference/google-setup.md), and only the part they
+are stuck on. If `gcloud` is installed — `setup` reports this as `gcloud` in
+the JSON — the ADC route avoids the console entirely and is the better
+suggestion.
+
+Never invent a project id, a key path, or a client id.
 
 **Step 4 — copy.**
 
@@ -81,7 +105,7 @@ The command prints the new document's URL and the same fidelity report, this
 time computed by reading the finished Google Doc back. Give the user the URL.
 
 Install with the Google client libraries or `copy` will fail on import:
-`pip install 'autowriter[google]'`.
+`pip install "autowriter[google]"`. `autowriter setup` reports that too.
 
 ## Useful flags
 
@@ -121,6 +145,9 @@ EMF images; the tool says so when it needs it.
 ## Rules
 
 - Run `check` before `copy`, every time. It is free and catches real problems.
+- Never start a sign-in from a tool call. `autowriter setup --login` and
+  `gcloud auth application-default login` block on a human at a browser; give
+  them to the user with `!` and wait.
 - Report limitations rather than papering over them. A Word feature Google Docs
   cannot express (comments, text boxes, per-section page size, a real table of
   contents) is listed in the report and explained in

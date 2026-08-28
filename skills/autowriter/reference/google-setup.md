@@ -3,6 +3,19 @@
 `check`, `plan` and `inspect` need none of this. Only `copy` — the command that
 writes a real Google Doc — needs an account.
 
+**Run `autowriter setup` first.** It names the one thing to do next and prints
+the command that does it, so most of this file is only worth reading for the
+step you are actually stuck on. Run it again after each step; it is the thing
+that decides whether you are finished, and it exits 0 when you are.
+
+If `gcloud` is installed, the whole of this file collapses to two commands and
+no console clicking at all:
+
+```bash
+gcloud services enable docs.googleapis.com drive.googleapis.com
+gcloud auth application-default login   --scopes=https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.file
+```
+
 ## Contents
 
 - Step 1: a Google Cloud project
@@ -110,9 +123,13 @@ export AUTOWRITER_CLIENT_SECRETS=/path/to/client_secret.json
 
 ## Troubleshooting
 
+`autowriter setup` recognises most of these and prints the fix. The table is
+for the ones it hands you verbatim from Google.
+
 | Message | Cause | Fix |
 |---|---|---|
-| `The Google API client libraries are required` | Installed without the extra | `pip install 'autowriter[google]'` |
+| `The Google API client libraries are required` | Installed without the extra | `pip install "autowriter[google]"` |
+| `Not signed in yet` | Client secrets configured, no cached token | `autowriter setup --login --client-secrets client_secret.json` |
 | `403 Google Docs API has not been used in project ... before or it is disabled` | Step 2 skipped or wrong project | Enable both APIs in the project the credentials belong to |
 | `access_denied` in the browser | Your address is not a test user on the consent screen | Add it under **Audience** / **Test users** |
 | `invalid_grant` | Cached token no longer valid | `rm ~/.autowriter/token.json` and run again |

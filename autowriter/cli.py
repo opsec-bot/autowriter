@@ -1,5 +1,7 @@
 """Command line interface.
 
+    autowriter setup                         # what is missing before copy works
+    autowriter setup --login                 # sign in once, cache the token
     autowriter check  report.docx            # offline dry run + fidelity report
     autowriter copy   report.docx            # write it into a new Google Doc
     autowriter plan   report.docx            # dump the batchUpdate requests
@@ -71,6 +73,27 @@ def build_parser() -> argparse.ArgumentParser:
     copy.add_argument("--no-verify", action="store_true", help="skip reading the result back")
     copy.add_argument("--json", action="store_true", help="emit the report as JSON")
 
+    setup = commands.add_parser(
+        "setup",
+        help="check what is missing before `copy` can run, and sign in",
+    )
+    setup.add_argument(
+        "--login",
+        action="store_true",
+        help="run the OAuth flow now; opens a browser and waits, so run it yourself "
+        "rather than from an agent",
+    )
+    setup.add_argument("--force", action="store_true", help="discard the cached token first")
+    setup.add_argument("--service-account", help="path to a service account key file")
+    setup.add_argument("--client-secrets", help="path to an OAuth client secrets file")
+    setup.add_argument("--token-file", help="where the OAuth token is cached")
+    setup.add_argument(
+        "--no-probe",
+        action="store_true",
+        help="do not call the APIs to see whether they are enabled",
+    )
+    setup.add_argument("--json", action="store_true", help="emit the diagnosis as JSON")
+
     plan = commands.add_parser("plan", help="print the batchUpdate requests as JSON")
     common(plan)
 
@@ -90,6 +113,9 @@ def copy_options(args: argparse.Namespace) -> CopyOptions:
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "setup":
+        return _setup(args)
+
     if not os.path.exists(args.docx):
         print("no such file: %s" % args.docx, file=sys.stderr)
         return 2
@@ -106,6 +132,31 @@ def main(argv: Optional[List[str]] = None) -> int:
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
+
+
+def _setup(args: argparse.Namespace) -> int:
+    from .gdocs import doctor
+
+    if args.login:
+        code, message = doctor.login(
+            client_secrets=args.client_secrets,
+            token_file=args.token_file,
+            force=args.force,
+        )
+        print(message, file=sys.stderr if code else sys.stdout)
+        return code
+
+    diagnosis = doctor.diagnose(
+        service_account=args.service_account,
+        client_secrets=args.client_secrets,
+        token_file=args.token_file,
+        probe=not args.no_probe,
+    )
+    if args.json:
+        print(json.dumps(diagnosis.to_dict(), indent=2))
+    else:
+        print(diagnosis.to_text(), end="")
+    return 0 if diagnosis.ready else 1
 
 
 def _check(args: argparse.Namespace) -> int:

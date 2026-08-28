@@ -10,7 +10,7 @@
       "name": "autowriter",
       "source": "./",
       "description": "Recreate a .docx inside a Google Doc one editing operation at a time, and report exactly what could not be reproduced.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "displayName": "autowriter",
       "author": { "name": "opsec-bot" },
       "homepage": "https://github.com/opsec-bot/autowriter",
