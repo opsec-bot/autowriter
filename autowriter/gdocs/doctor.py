@@ -34,6 +34,10 @@ LIBRARIES = (
 
 DEFAULT_TOKEN_FILE = "~/.autowriter/token.json"
 
+#: Where `setup --login` tells people to keep the OAuth client, so a printed
+#: fix can name a real path instead of a placeholder they have to substitute.
+DEFAULT_CLIENT_SECRETS = "~/.autowriter/client_secret.json"
+
 #: A document id that cannot exist.  Asking for it costs nothing and tells us
 #: what we want to know: 404 means the API answered, 403 means it is switched
 #: off in this project.
@@ -224,21 +228,37 @@ def _check_credentials(
             token_file=token_file,
             allow_browser=False,
         )
-    except AuthError:
-        if client_secrets:
+    except AuthError as error:
+        secrets = _known_client_secrets(client_secrets)
+
+        # A cached sign-in that exists but will not refresh is a different
+        # problem from having no credential at all, and it has a different
+        # fix.  Reporting it as "missing" sends people hunting for a file that
+        # is sitting right there.
+        if _is_revoked(error):
+            return None, Check(
+                "credentials",
+                BROKEN,
+                "the cached sign-in at %s was rejected: the refresh token has "
+                "expired or been revoked" % resolved_token,
+                fix=_revoked_fix(),
+                command=_login_command(secrets, force=True),
+            )
+
+        if secrets:
             return None, Check(
                 "credentials",
                 MISSING,
                 "client secrets present, but not signed in yet",
                 fix="sign in once; the token is then cached at %s" % resolved_token,
-                command="autowriter setup --login --client-secrets %s" % client_secrets,
+                command=_login_command(secrets),
             )
         return None, Check(
             "credentials",
             MISSING,
             "no service account key, cached sign-in or gcloud login found",
             fix=_credential_fix(gcloud),
-            command="autowriter setup --login --client-secrets client_secret.json",
+            command=_login_command(None),
         )
 
     if service_account:
@@ -248,6 +268,53 @@ def _check_credentials(
     else:
         detail = "application default credentials"
     return credentials, Check("credentials", OK, detail)
+
+
+def _is_revoked(error: AuthError) -> bool:
+    """Whether this failure is a cached token that can no longer be refreshed.
+
+    google-auth reports the reason inside an ``invalid_grant`` response rather
+    than as a distinct exception type, so the text is what there is to match on.
+    """
+    message = str(error).lower()
+    return "invalid_grant" in message or "could not be refreshed" in message
+
+
+def _known_client_secrets(client_secrets: Optional[str]) -> Optional[str]:
+    """An OAuth client we can name in a printed command, if one exists.
+
+    Falls back to the location `setup --login` writes people towards, so the
+    fix for a revoked token is runnable as printed instead of carrying a
+    placeholder filename.
+    """
+    if client_secrets:
+        return client_secrets
+    default = os.path.normpath(os.path.expanduser(DEFAULT_CLIENT_SECRETS))
+    return default if os.path.exists(default) else None
+
+
+def _login_command(client_secrets: Optional[str], force: bool = False) -> str:
+    command = "autowriter setup --login"
+    if force:
+        command += " --force"
+    return command + ' --client-secrets "%s"' % (client_secrets or "client_secret.json")
+
+
+def _revoked_fix() -> str:
+    """Why a working sign-in stops working, and how to stop it recurring.
+
+    Google expires the refresh tokens of an app still in Testing after seven
+    days, so a personal-account setup that worked last week fails today for a
+    reason nothing local can show.  Publishing the consent screen ends it; the
+    app stays unverified and simply keeps warning at sign-in.
+    """
+    return (
+        "sign in again. If this recurs about weekly, the OAuth consent screen is "
+        "still in Testing, and Google expires refresh tokens for testing apps "
+        "after 7 days -- press Publish app at "
+        "https://console.cloud.google.com/apis/credentials/consent to stop it. "
+        "The app stays unverified; sign-in keeps showing the unverified warning."
+    )
 
 
 def _credential_fix(gcloud: bool) -> str:
